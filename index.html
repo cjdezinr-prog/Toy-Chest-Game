@@ -38,7 +38,7 @@ body.nocam{background:linear-gradient(#35407a,#1d1a2f)}
   <h1>Toy Cleanup</h1>
   <p>Look around your room to find 5 toys. Tap a toy to pick it up, then tap the toy chest.</p>
   <label class="btn alt">Choose a music file<input id="song" type="file" accept="audio/*" hidden></label>
-  <div id="songname">No music chosen. The game works without it.</div>
+  <div id="songname">Music plays automatically. You can pick a different file if you like.</div>
   <button class="btn" id="go" disabled>Loading…</button>
 </div>
 
@@ -73,7 +73,7 @@ let state = 'idle', carrying = null, deposited = 0, hasGyro = false, chestPos;
 const R = new THREE.WebGLRenderer({ canvas: $('#gl'), alpha: true, antialias: true });
 R.setPixelRatio(Math.min(devicePixelRatio, 2)); R.setClearColor(0x000000, 0);
 const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(70, 1, .05, 100);
-scene.add(cam, new THREE.AmbientLight(0xffffff, .95));
+scene.add(cam, new THREE.AmbientLight(0xffffff, 1.15));
 const dl = new THREE.DirectionalLight(0xffffff, .8); dl.position.set(1, 3, 2); scene.add(dl);
 const resize = () => { R.setSize(innerWidth, innerHeight, false); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); };
 resize(); addEventListener('resize', resize);
@@ -135,6 +135,28 @@ addEventListener('pointerdown', e => { lx = e.clientX; ly = e.clientY; });
 addEventListener('pointermove', e => { const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY; if (hasGyro || !(e.buttons & 1)) return; ry += dx * .004; rx = Math.max(-1.4, Math.min(1.4, rx + dy * .004)); cam.rotation.set(rx, ry, 0, 'YXZ'); });
 
 // ---------- START ----------
+// ===== YOUR SKETCHUP MODELS: file name, and size in the game (the longest side, in meters) =====
+const MODELS = { teddy: ['teddy.glb', .8], cube: ['rubiks-cube.glb', .4], duck: ['duck.glb', .6],
+  ball: ['ball.glb', .6], rings: ['ring-stacker.glb', .6], chest: ['toy-chest.glb', 1.2] };
+const useModel = (g, file, size) => new Promise(done => {
+  new THREE.GLTFLoader().load(file, gltf => {
+    const m = gltf.scene, box = new THREE.Box3().setFromObject(m), s = box.getSize(V(0, 0, 0)), c = box.getCenter(V(0, 0, 0));
+    const k = size / Math.max(s.x, s.y, s.z);                 // auto-resize so any SketchUp size works
+    m.scale.setScalar(k); m.position.sub(c.multiplyScalar(k)); // and center it
+    const wrap = new THREE.Group(); wrap.add(m);
+    while (g.children.length) g.remove(g.children[0]);         // remove the plain placeholder shapes
+    g.add(wrap); done(true);
+  }, undefined, () => done(false));
+});
+go.textContent = 'Loading toys…';
+try { await load('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js'); } catch (e) {}
+const failed = [];
+if (THREE.GLTFLoader) await Promise.all(Object.entries(MODELS).map(async ([id, [file, size]]) => {
+  const g = id === 'chest' ? chestG : toys.find(t => t.id === id).o;
+  if (!(await useModel(g, file, size))) failed.push(file);
+}));
+else failed.push('(model loader)');
+if (failed.length) note.textContent = 'Couldn’t load: ' + failed.join(', ') + '. Using plain shapes for those.';
 go.disabled = false; go.textContent = 'Start';
 go.onclick = async () => {
   try { if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) await DeviceOrientationEvent.requestPermission(); } catch (e) {}
@@ -253,6 +275,7 @@ function onDeposit() {
 
 // ---------- MUSIC (your own file) WITH GLITCHES ----------
 au.preservesPitch = false; au.webkitPreservesPitch = false;
+au.src = 'cleanup-song.mp3';   // the song file in your repo, in the same folder as index.html (name must match exactly)
 $('#song').onchange = e => {
   const file = e.target.files[0]; if (!file) return;
   au.src = URL.createObjectURL(file); note.textContent = 'Music: ' + file.name;
